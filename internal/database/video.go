@@ -7,12 +7,12 @@ import (
 )
 
 type Video struct {
-	ID         string
-	Filepath   string
-	Width      int
-	Height     int
-	FrameRate  float64
-	FrameCount int
+	ID         string  `json:"id"`
+	Filepath   string  `json:"-"`
+	Width      int     `json:"width"`
+	Height     int     `json:"height"`
+	FrameRate  float64 `json:"frame_rate"`
+	FrameCount int     `json:"frame_count"`
 }
 
 func CreateVideoTable(db *sql.DB) error {

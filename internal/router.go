@@ -2,7 +2,9 @@ package internal
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 
@@ -15,8 +17,23 @@ import (
 func CreateRouter(db *sql.DB, storageDir string) *gin.Engine {
 	router := gin.Default()
 
+	err := os.MkdirAll(filepath.Join(storageDir, "videos"), os.ModePerm)
+	if err != nil {
+		log.Fatalf("Failed to create videos directory: %v", err)
+	}
+
+	err = os.MkdirAll(filepath.Join(storageDir, "frames"), os.ModePerm)
+	if err != nil {
+		log.Fatalf("Failed to create frames directory: %v", err)
+	}
+
+	videoJobs := make(chan VideoJob, 100)
+
+	for i := 0; i < 10; i++ {
+		go RunVideoWorker(db, storageDir, videoJobs)
+	}
+
 	router.POST("/videos", func(c *gin.Context) {
-		// Get the video file
 		formFile, err := c.FormFile("file")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "No video file found"})
@@ -24,32 +41,15 @@ func CreateRouter(db *sql.DB, storageDir string) *gin.Engine {
 		}
 
 		id := uuid.New().String()
-		videoFilePath := filepath.Join(storageDir, id+".mp4")
+		videoFilePath := filepath.Join(storageDir, "videos", id+".mp4")
 		if err := c.SaveUploadedFile(formFile, videoFilePath); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save video file"})
 			return
 		}
 
-		stream, err := GetVideoStream(videoFilePath)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video stream info"})
-			return
-		}
+		videoJobs <- VideoJob{ID: id, Filepath: videoFilePath}
 
-		frameCount, err := GetFrameCount(videoFilePath)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video frame count: " + err.Error()})
-			return
-		}
-
-		video := &database.Video{ID: id, Filepath: videoFilePath, Width: stream.Width, Height: stream.Height, FrameRate: stream.FrameRate, FrameCount: frameCount}
-		err = database.InsertVideo(db, video)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert video into database"})
-			return
-		}
-
-		c.JSON(http.StatusOK, video)
+		c.JSON(http.StatusOK, gin.H{"id": id})
 	})
 
 	router.GET("/videos", func(c *gin.Context) {
@@ -92,7 +92,7 @@ func CreateRouter(db *sql.DB, storageDir string) *gin.Engine {
 			return
 		}
 
-		frame, err := database.GetFrame(db, id, index)
+		frame, err := database.GetFrame(db, id, index, storageDir)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Frame not found"})
 			return
@@ -109,7 +109,7 @@ func CreateRouter(db *sql.DB, storageDir string) *gin.Engine {
 			return
 		}
 
-		frame, err := database.GetFrame(db, id, index)
+		frame, err := database.GetFrame(db, id, index, storageDir)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Frame not found"})
 			return

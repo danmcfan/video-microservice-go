@@ -2,55 +2,37 @@ package database
 
 import (
 	"database/sql"
-
-	_ "github.com/mattn/go-sqlite3"
+	"fmt"
+	"os"
 )
 
 type Frame struct {
-	ID       string
-	Filepath string
-	FrameNo  int
-	VideoID  string
+	VideoID     string `json:"video_id"`
+	FrameNumber int    `json:"frame_number"`
+	Filepath    string `json:"-"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
 }
 
-func CreateFrameTable(db *sql.DB) error {
-	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS frames (
-			id TEXT PRIMARY KEY,
-			filepath TEXT,
-			frame_no INTEGER,
-			video_id TEXT
-		);
-	`)
-	return err
-}
-
-func CreateFrameIndex(db *sql.DB) error {
-	_, err := db.Exec(`
-		CREATE INDEX IF NOT EXISTS idx_video_id_frame_no ON frames (video_id, frame_no);
-	`)
-	return err
-}
-
-func InsertFrame(db *sql.DB, f *Frame) error {
-	_, err := db.Exec(`
-		INSERT INTO frames (id, filepath, frame_no, video_id)
-		VALUES (?, ?, ?, ?);
-	`, f.ID, f.Filepath, f.FrameNo, f.VideoID)
-	return err
-}
-
-func GetFrame(db *sql.DB, videoID string, frameNo int) (*Frame, error) {
-	row := db.QueryRow(`
-		SELECT id, filepath, frame_no, video_id
-		FROM frames
-		WHERE video_id = ? AND frame_no = ?; 
-	`, videoID, frameNo)
-
-	f := &Frame{}
-	err := row.Scan(&f.ID, &f.Filepath, &f.FrameNo, &f.VideoID)
+func GetFrame(db *sql.DB, videoID string, frameNumber int, storageDir string) (*Frame, error) {
+	video, err := GetVideo(db, videoID)
 	if err != nil {
 		return nil, err
 	}
-	return f, nil
+
+	frameFilePath := fmt.Sprintf("%s/frames/%s/%d.png", storageDir, videoID, frameNumber)
+
+	_, err = os.Stat(frameFilePath)
+	frameExists := !os.IsNotExist(err)
+	if !frameExists {
+		return nil, fmt.Errorf("frame %d does not exist", frameNumber)
+	}
+
+	return &Frame{
+		VideoID:     videoID,
+		FrameNumber: frameNumber,
+		Filepath:    frameFilePath,
+		Width:       video.Width,
+		Height:      video.Height,
+	}, nil
 }

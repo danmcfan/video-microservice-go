@@ -22,18 +22,6 @@ func main() {
 		return
 	}
 
-	err = database.CreateFrameTable(db)
-	if err != nil {
-		log.Fatalf("Failed to create frame table: %v", err)
-		return
-	}
-
-	err = database.CreateFrameIndex(db)
-	if err != nil {
-		log.Fatalf("Failed to create frame index: %v", err)
-		return
-	}
-
 	storageDir := "./temp/storage"
 
 	if storageDir == "" {
