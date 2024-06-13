@@ -28,23 +28,24 @@ type Stream struct {
 	Height     int     `json:"height"`
 	RFrameRate string  `json:"r_frame_rate"`
 	FrameRate  float64 `json:"-"`
+	FrameCount string  `json:"nb_frames"`
 }
 
 func RunVideoWorker(db *sql.DB, storageDir string, videoJobs <-chan VideoJob) {
 	for job := range videoJobs {
-		stream, err := GetVideoStream(job.Filepath)
+		stream, err := getStream(job.Filepath)
 		if err != nil {
 			log.Fatalf("Failed to get video stream: %v", err)
 			return
 		}
 
-		frameCount, err := GetFrameCount(job.Filepath)
+		frameCountInt, err := strconv.Atoi(stream.FrameCount)
 		if err != nil {
-			log.Fatalf("Failed to get frame count: %v", err)
+			log.Fatalf("Failed to convert frame count to int: %v", err)
 			return
 		}
 
-		video := &database.Video{ID: job.ID, Filepath: job.Filepath, Width: stream.Width, Height: stream.Height, FrameRate: stream.FrameRate, FrameCount: frameCount}
+		video := &database.Video{ID: job.ID, Filepath: job.Filepath, Width: stream.Width, Height: stream.Height, FrameRate: stream.FrameRate, FrameCount: frameCountInt}
 		err = database.InsertVideo(db, video)
 		if err != nil {
 			log.Fatalf("Failed to insert video: %v", err)
@@ -58,7 +59,7 @@ func RunVideoWorker(db *sql.DB, storageDir string, videoJobs <-chan VideoJob) {
 			return
 		}
 
-		err = ExtractFrames(job.Filepath, framesDir, int(stream.FrameRate))
+		err = extractFrames(job.Filepath, framesDir)
 		if err != nil {
 			log.Fatalf("Failed to extract frames: %v", err)
 			return
@@ -66,8 +67,8 @@ func RunVideoWorker(db *sql.DB, storageDir string, videoJobs <-chan VideoJob) {
 	}
 }
 
-func GetVideoStream(filePath string) (*Stream, error) {
-	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate", "-of", "json", filePath)
+func getStream(filePath string) (*Stream, error) {
+	cmd := exec.Command("ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", filePath)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
@@ -95,39 +96,8 @@ func GetVideoStream(filePath string) (*Stream, error) {
 	return &info.Streams[0], nil
 }
 
-func GetFrameCount(filePath string) (int, error) {
-	cmd := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames", "-of", "json", filePath)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return 0, fmt.Errorf("failed to run ffprobe: %w", err)
-	}
-
-	var result struct {
-		Streams []struct {
-			FrameCount string `json:"nb_read_frames"`
-		} `json:"streams"`
-	}
-
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		return 0, fmt.Errorf("failed to parse ffprobe output: %w", err)
-	}
-
-	if len(result.Streams) == 0 {
-		return 0, fmt.Errorf("no video stream found in file")
-	}
-
-	frameCount, err := strconv.Atoi(strings.TrimSpace(result.Streams[0].FrameCount))
-	if err != nil {
-		return 0, fmt.Errorf("failed to convert frame count to integer: %w", err)
-	}
-
-	return frameCount, nil
-}
-
-func ExtractFrames(filePath string, outputDir string, fps int) error {
-	cmd := exec.Command("ffmpeg", "-i", filePath, "-q:v", "2", "-vf", "fps="+strconv.Itoa(fps), "-vsync", "vfr", fmt.Sprintf("%s/%%d.png", outputDir))
+func extractFrames(filePath string, outputDir string) error {
+	cmd := exec.Command("ffmpeg", "-i", filePath, fmt.Sprintf("%s/%%d.png", outputDir))
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
