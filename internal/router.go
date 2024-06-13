@@ -1,12 +1,16 @@
 package internal
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,7 +18,38 @@ import (
 	"github.com/danmcfan/video-microservice-golang/internal/database"
 )
 
-func CreateRouter(db *sql.DB, storageDir string) *gin.Engine {
+func RunServer(port int, db *sql.DB, storageDir string) {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	router := createRouter(db, storageDir)
+
+	srv := &http.Server{
+		Addr:    ":" + strconv.Itoa(port),
+		Handler: router,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	<-ctx.Done()
+
+	stop()
+	log.Println("Shutting down gracefully, press Ctrl+C again to force")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Server exiting")
+}
+
+func createRouter(db *sql.DB, storageDir string) *gin.Engine {
 	router := gin.Default()
 
 	err := os.MkdirAll(filepath.Join(storageDir, "videos"), os.ModePerm)

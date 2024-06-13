@@ -38,8 +38,7 @@ func main() {
 		}
 	}
 
-	router := internal.CreateRouter(db, storageDir)
-	router.Run(":8080")
+	internal.RunServer(8080, db, storageDir)
 
 	db.Close()
 }
