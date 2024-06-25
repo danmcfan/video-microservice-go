@@ -1,6 +1,6 @@
 # Video Microservice Go
 
-A microservice written in Go that accepts video files and extracts frames and metadata
+A microservice in Go that accepts video files and extracts frames and metadata
 
 ## Usage
 
