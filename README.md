@@ -1,4 +1,4 @@
-# Video Microservice Go
+# Video Splitter Go
 
 A microservice in Go that accepts video files and extracts frames and metadata
 
